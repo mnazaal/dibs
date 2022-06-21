@@ -368,7 +368,7 @@ class MarginalDiBS(DiBS):
 class JointDiBS(DiBS):
     """
     This class implements Stein Variational Gradient Descent (SVGD) (Liu and Wang, 2016)
-    for DiBS inference (Lorch et al., 2021) of the marginal DAG posterior :math:`p(G | D)`.
+    for DiBS inference (Lorch et al., 2021) of the marginal DAG posterior :math:`p(G, \\Theta | D)`.
     For marginal inference of :math:`p(G | D)`, use the analogous class
     :class:`~dibs.inference.MarginalDiBS`.
 
