@@ -10,24 +10,12 @@ from dibs.graph_utils import mat_to_graph, graph_to_mat, mat_is_dag
 @dataclass
 class GraphParameters:
     n_vars:     int
-    distr:      str
-    n_edges:    int | None
-    p_edge:     int | None
-    return_adj: bool
-    return_dag: bool
-    n_edges_per_node: int = 2
-    valid_distrs = ["er", "sf", "unif"]
+    n_edges_per_node: int
 
-    def __post_init__(self):
-        assert (self.distr in self.valid_distrs), "Implemented distributions are er: ErdosRenyi, sf:ScaleFree, unif: Uniform"
-        if self.distr == "er":
-            self.p_edge = self.n_edges / ((self.n_vars * (self.n_vars - 1)) / 2)
-            self.n_edges = self.p_edge*self.n_edges_per_node
-
-
+    
 class GraphDistribution(GraphParameters):
     @abstractmethod
-    def sample_G(self):
+    def sample_G(self, key, return_mat):
         """Samples DAG
 
         Args:
@@ -38,7 +26,6 @@ class GraphDistribution(GraphParameters):
             ``iGraph.graph`` / ``jnp.array``:
             DAG
         """
-        pass
 
     @abstractmethod
     def unnormalized_log_prob_single(self, *, g, j):
@@ -53,7 +40,6 @@ class GraphDistribution(GraphParameters):
             unnormalized log probability of node family of :math:`j`
 
         """
-        pass
 
     @abstractmethod
     def unnormalized_log_prob(self, *, g):
@@ -67,7 +53,6 @@ class GraphDistribution(GraphParameters):
             unnormalized log probability of :math:`G`
 
         """
-        pass
 
     @abstractmethod
     def unnormalized_log_prob_soft(self, *, soft_g):
@@ -83,7 +68,6 @@ class GraphDistribution(GraphParameters):
             unnormalized log probability corresponding to edge probabilities in :math:`G`
 
         """
-        pass
 
 
 class ErdosReniDAGDistribution(GraphDistribution):
@@ -102,10 +86,14 @@ class ErdosReniDAGDistribution(GraphDistribution):
         n_edges_per_node (int): number of edges sampled per variable in expectation
 
     """
-    
+    def __init__(self, n_vars, n_edges_per_node=2):
+        super().__init__(n_vars, n_edges_per_node)
+        self.n_edges = n_vars*n_edges_per_node
+        self.p_edge = self.n_edges / ((n_vars * (n_vars - 1)) / 2)
+
     def sample_G(self, key, return_mat=False):
         key, subk = random.split(key)
-        mat = random.bernoulli(subk, p=self.p, shape=(self.n_vars, self.n_vars)).astype(jnp.int32)
+        mat = random.bernoulli(subk, p=self.p_edge, shape=(self.n_vars, self.n_vars)).astype(jnp.int32)
 
         # make DAG by zeroing above diagonal; k=-1 indicates that diagonal is zero too
         dag = jnp.tril(mat, k=-1)
@@ -124,18 +112,18 @@ class ErdosReniDAGDistribution(GraphDistribution):
     def unnormalized_log_prob_single(self, *, g, j):
         parent_edges = g.incident(j, mode='in')
         n_parents = len(parent_edges)
-        return n_parents * jnp.log(self.p) + (self.n_vars - n_parents - 1) * jnp.log(1 - self.p)
+        return n_parents * jnp.log(self.p_edge) + (self.n_vars - n_parents - 1) * jnp.log(1 - self.p_edge)
 
     def unnormalized_log_prob(self, *, g):
         N = self.n_vars * (self.n_vars - 1) / 2.0
         E = len(g.es)
 
-        return E * jnp.log(self.p) + (N - E) * jnp.log(1 - self.p)
+        return E * jnp.log(self.p_edge) + (N - E) * jnp.log(1 - self.p_edge)
 
     def unnormalized_log_prob_soft(self, *, soft_g):
         N = self.n_vars * (self.n_vars - 1) / 2.0
         E = soft_g.sum()
-        return E * jnp.log(self.p) + (N - E) * jnp.log(1 - self.p)
+        return E * jnp.log(self.p_edge) + (N - E) * jnp.log(1 - self.p_edge)
 
 
 class ScaleFreeDAGDistribution(GraphDistribution):
@@ -160,8 +148,7 @@ class ScaleFreeDAGDistribution(GraphDistribution):
 
         if return_mat:
             return graph_to_mat(g)
-        else:
-            return g
+        return g
 
     def unnormalized_log_prob_single(self, *, g, j):
         parent_edges = g.incident(j, mode='in')
