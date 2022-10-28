@@ -2,91 +2,11 @@ import igraph as ig
 import random as pyrandom
 import jax.numpy as jnp
 from jax import random
-from dataclasses import dataclass
-from abc import abstractmethod
 
 from dibs.graph_utils import mat_to_graph, graph_to_mat, mat_is_dag
 
-@dataclass
-class GraphParameters:
-    n_vars:     int
-    distr:      str
-    n_edges:    int | None
-    p_edge:     int | None
-    return_adj: bool
-    return_dag: bool
-    n_edges_per_node: int = 2
-    valid_distrs = ["er", "sf", "unif"]
 
-    def __post_init__(self):
-        assert (self.distr in self.valid_distrs), "Implemented distributios are er: ErdosRenyi, sf:ScaleFree, unif: Uniform"
-        if self.distr == "er":
-            self.p_edge = self.n_edges / ((self.n_vars * (self.n_vars - 1)) / 2)
-            self.n_edges = self.p_edge*self.n_edges_per_node
-
-
-class GraphDistribution(GraphParameters):
-    @abstractmethod
-    def sample_G(self):
-        """Samples DAG
-
-        Args:
-            key (ndarray): rng
-            return_mat (bool): if ``True``, returns adjacency matrix of shape ``[n_vars, n_vars]``
-
-        Returns:
-            ``iGraph.graph`` / ``jnp.array``:
-            DAG
-        """
-        pass
-
-    @abstractmethod
-    def unnormalized_log_prob_single(self, *, g, j):
-        """
-        Computes :math:`\\log p(G_j)` up the normalization constant
-
-        Args:
-            g (iGraph.graph): graph
-            j (int): node index:
-
-        Returns:
-            unnormalized log probability of node family of :math:`j`
-
-        """
-        pass
-
-    @abstractmethod
-    def unnormalized_log_prob(self, *, g):
-        """
-        Computes :math:`\\log p(G)` up the normalization constant
-
-        Args:
-            g (iGraph.graph): graph
-
-        Returns:
-            unnormalized log probability of :math:`G`
-
-        """
-        pass
-
-    @abstractmethod
-    def unnormalized_log_prob_soft(self, *, soft_g):
-        """
-        Computes :math:`\\log p(G)` up the normalization constant
-        where :math:`G` is the matrix of edge probabilities
-
-        Args:
-            soft_g (ndarray): graph adjacency matrix, where entries
-                may be probabilities and not necessarily 0 or 1
-
-        Returns:
-            unnormalized log probability corresponding to edge probabilities in :math:`G`
-
-        """
-        pass
-
-
-class ErdosReniDAGDistribution(GraphDistribution):
+class ErdosReniDAGDistribution:
     """
     Randomly oriented Erdos-Reni random graph model with i.i.d. edge probability.
     The pmf is defined as
@@ -102,8 +22,26 @@ class ErdosReniDAGDistribution(GraphDistribution):
         n_edges_per_node (int): number of edges sampled per variable in expectation
 
     """
-    
+
+    def __init__(self, n_vars, n_edges_per_node=2):
+        super(ErdosReniDAGDistribution, self).__init__()
+
+        self.n_vars = n_vars
+        self.n_edges = n_edges_per_node * n_vars
+        self.p = self.n_edges / ((self.n_vars * (self.n_vars - 1)) / 2)
+
     def sample_G(self, key, return_mat=False):
+        """Samples DAG
+
+        Args:
+            key (ndarray): rng
+            return_mat (bool): if ``True``, returns adjacency matrix of shape ``[n_vars, n_vars]``
+
+        Returns:
+            ``iGraph.graph`` / ``jnp.array``:
+            DAG
+        """
+
         key, subk = random.split(key)
         mat = random.bernoulli(subk, p=self.p, shape=(self.n_vars, self.n_vars)).astype(jnp.int32)
 
@@ -117,9 +55,9 @@ class ErdosReniDAGDistribution(GraphDistribution):
 
         if return_mat:
             return dag_perm
-
-        g = mat_to_graph(dag_perm)
-        return g
+        else:
+            g = mat_to_graph(dag_perm)
+            return g
 
     def unnormalized_log_prob_single(self, *, g, j):
         """
@@ -171,7 +109,7 @@ class ErdosReniDAGDistribution(GraphDistribution):
         return E * jnp.log(self.p) + (N - E) * jnp.log(1 - self.p)
 
 
-class ScaleFreeDAGDistribution(GraphDistribution):
+class ScaleFreeDAGDistribution:
     """
     Randomly-oriented scale-free random graph with power-law degree distribution.
     The pmf is defined as
@@ -185,6 +123,14 @@ class ScaleFreeDAGDistribution(GraphDistribution):
         n_edges_per_node (int): number of edges sampled per variable
 
     """
+
+    def __init__(self, n_vars, verbose=False, n_edges_per_node=2):
+        super(ScaleFreeDAGDistribution, self).__init__()
+
+        self.n_vars = n_vars
+        self.n_edges_per_node = n_edges_per_node
+        self.verbose = verbose
+
 
     def sample_G(self, key, return_mat=False):
         """Samples DAG
@@ -253,7 +199,7 @@ class ScaleFreeDAGDistribution(GraphDistribution):
         return jnp.sum(-3 * jnp.log(1 + soft_indegree))
 
 
-class UniformDAGDistributionRejection(GraphDistribution):
+class UniformDAGDistributionRejection:
     """
     Naive implementation of a uniform distribution over DAGs via rejection
     sampling. This is efficient up to roughly :math:`d = 5`.
@@ -264,6 +210,10 @@ class UniformDAGDistributionRejection(GraphDistribution):
         n_vars (int): number of variables in DAG
 
     """
+
+    def __init__(self, n_vars):
+        super(UniformDAGDistributionRejection, self).__init__()
+        self.n_vars = n_vars 
 
     def sample_G(self, key, return_mat=False):
         """Samples DAG
@@ -284,8 +234,8 @@ class UniformDAGDistributionRejection(GraphDistribution):
             if mat_is_dag(mat):
                 if return_mat:
                     return mat
-                
-                return mat_to_graph(mat)
+                else:
+                    return mat_to_graph(mat)
 
     def unnormalized_log_prob_single(self, *, g, j):
         """
