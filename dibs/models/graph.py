@@ -12,7 +12,7 @@ class GraphParameters:
     n_vars:     int
     n_edges_per_node: int
 
-    
+ 
 class GraphDistribution(GraphParameters):
     @abstractmethod
     def sample_G(self, key, return_mat):
